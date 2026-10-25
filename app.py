@@ -231,46 +231,64 @@ with st.sidebar:
 
 def profile_form():
     old = st.session_state.profile or {}
-    with st.form("profile_form"):
-        name = st.text_input("Your name", old.get("name", "Student"))
-        c1, c2 = st.columns(2)
-        with c1:
-            education = st.selectbox("Education", ["B.Tech", "B.E.", "BCA", "MCA", "B.Sc.", "BBA", "B.Com", "M.Tech", "Other"], index=["B.Tech", "B.E.", "BCA", "MCA", "B.Sc.", "BBA", "B.Com", "M.Tech", "Other"].index(old.get("education", "B.Tech")) if old.get("education", "B.Tech") in ["B.Tech", "B.E.", "BCA", "MCA", "B.Sc.", "BBA", "B.Com", "M.Tech", "Other"] else 0)
-            degree = st.text_input("Branch / degree", old.get("degree", "Computer Science"))
-            experience = st.selectbox("Experience level", ["Beginner", "Student projects", "Internship experience", "Experienced"], index=["Beginner", "Student projects", "Internship experience", "Experienced"].index(old.get("experience", "Beginner")) if old.get("experience", "Beginner") in ["Beginner", "Student projects", "Internship experience", "Experienced"] else 0)
-        with c2:
-            skill_options = ["Python", "Java", "C/C++", "Data Structures", "SQL", "Excel", "Statistics", "Data Visualization", "Machine Learning", "Pandas", "NumPy", "Networking", "Linux", "Security Fundamentals", "Git", "Docker", "CI/CD", "Cloud Fundamentals", "Figma", "Wireframing", "Prototyping", "User Research", "Communication", "Problem Solving", "Requirements Analysis"]
-            skills = st.multiselect("Skills you currently have", skill_options, default=[x for x in old.get("skills", []) if x in skill_options])
-            interest_options = ["software development", "problem solving", "building applications", "data", "analytics", "statistics", "artificial intelligence", "machine learning", "cybersecurity", "networks", "automation", "cloud", "deployment", "design", "creativity", "user experience", "business", "research", "product strategy"]
-            interests = st.multiselect("Interests", interest_options, default=[x for x in old.get("interests", []) if x in interest_options])
-        goal = st.text_area("Career goal", old.get("goal", "Find a suitable entry-level role and internship"), placeholder="Example: I want to become a software developer and build projects.")
-        submitted = st.form_submit_button("Save profile & generate recommendations", type="primary", use_container_width=True)
-    if submitted:
-        profile = {"name": name.strip() or "Student", "education": education, "degree": degree.strip(), "experience": experience, "skills": skills, "interests": interests, "goal": goal.strip()}
-        try:
-            recommendations = recommend(profile)
-        except Exception as exc:
-            st.error(f"Could not generate recommendations ({type(exc).__name__}). Please check the profile and try again.")
-            return
+    education_options = ["B.Tech", "B.E.", "BCA", "MCA", "B.Sc.", "BBA", "B.Com", "M.Tech", "Other"]
+    experience_options = ["Beginner", "Student projects", "Internship experience", "Experienced"]
+    skill_options = ["Python", "Java", "C/C++", "Data Structures", "SQL", "Excel", "Statistics", "Data Visualization", "Machine Learning", "Pandas", "NumPy", "Networking", "Linux", "Security Fundamentals", "Git", "Docker", "CI/CD", "Cloud Fundamentals", "Figma", "Wireframing", "Prototyping", "User Research", "Communication", "Problem Solving", "Requirements Analysis"]
+    interest_options = ["software development", "problem solving", "building applications", "data", "analytics", "statistics", "artificial intelligence", "machine learning", "cybersecurity", "networks", "automation", "cloud", "deployment", "design", "creativity", "user experience", "business", "research", "product strategy"]
 
-        st.session_state.profile = profile
-        st.session_state.recommendations = recommendations or []
-        try:
-            result = save_profile(profile, st.session_state.profile_id)
-            message = result.get("message", "") if isinstance(result, dict) else ""
-            notice = "Profile processed successfully for this session."
-            if message:
-                notice += " " + str(message)
-        except Exception as exc:
-            # Log the actual exception in Streamlit Cloud without exposing secrets.
-            print(f"Profile save error: {type(exc).__name__}: {exc}")
-            notice = (
-                "Profile processed for this session, "
-                f"but database saving failed ({type(exc).__name__})."
-            )
-        st.session_state.profile_save_notice = notice
-        st.session_state.navigate_after_save = "Recommendations"
-        st.rerun()
+    # Keep inputs outside st.form so submission is a direct, visible button action.
+    name = st.text_input("Your name", value=old.get("name", "Student"), key="profile_name_input")
+    c1, c2 = st.columns(2)
+    with c1:
+        old_education = old.get("education", "B.Tech")
+        education = st.selectbox("Education", education_options, index=education_options.index(old_education) if old_education in education_options else 0, key="profile_education_input")
+        degree = st.text_input("Branch / degree", value=old.get("degree", "Computer Science"), key="profile_degree_input")
+        old_experience = old.get("experience", "Beginner")
+        experience = st.selectbox("Experience level", experience_options, index=experience_options.index(old_experience) if old_experience in experience_options else 0, key="profile_experience_input")
+    with c2:
+        skills = st.multiselect("Skills you currently have", skill_options, default=[x for x in old.get("skills", []) if x in skill_options], key="profile_skills_input")
+        interests = st.multiselect("Interests", interest_options, default=[x for x in old.get("interests", []) if x in interest_options], key="profile_interests_input")
+    goal = st.text_area("Career goal", value=old.get("goal", "Find a suitable entry-level role and internship"), placeholder="Example: I want to become a software developer and build projects.", key="profile_goal_input")
+
+    submitted = st.button("Save profile & generate recommendations", type="primary", use_container_width=True, key="save_profile_generate_button")
+    if not submitted:
+        return
+
+    profile = {
+        "name": name.strip() or "Student",
+        "education": education,
+        "degree": degree.strip(),
+        "experience": experience,
+        "skills": skills,
+        "interests": interests,
+        "goal": goal.strip(),
+    }
+    st.session_state.profile = profile
+    st.info("Profile received. Generating your recommendations…")
+
+    try:
+        recommendations = recommend(profile) or []
+        st.session_state.recommendations = recommendations
+    except Exception as exc:
+        print(f"Recommendation generation error: {type(exc).__name__}: {exc}")
+        st.error(f"Profile was received, but recommendations failed ({type(exc).__name__}). Check the app logs for details.")
+        return
+
+    try:
+        result = save_profile(profile, st.session_state.profile_id)
+        message = result.get("message", "") if isinstance(result, dict) else ""
+        notice = "Profile processed successfully for this session."
+        if message:
+            notice += " " + str(message)
+    except Exception as exc:
+        print(f"Profile save error: {type(exc).__name__}: {exc}")
+        notice = f"Recommendations generated, but database saving failed ({type(exc).__name__})."
+
+    st.session_state.profile_save_notice = notice
+    # Set the sidebar radio's state before rerunning; the navigation block above
+    # consumes this request before the radio widget is created.
+    st.session_state.navigate_after_save = "Recommendations"
+    st.rerun()
 
 
 def show_recommendations():
