@@ -26,11 +26,12 @@ def get_setting(name, default=""):
 
 
 def collection(name="profiles"):
-    """Return a MongoDB collection, or None if unavailable."""
+    """Return a MongoDB collection, or None when unavailable."""
     global _client, _client_uri
 
     uri = get_setting("MONGODB_URI")
     if not uri:
+        print("MongoDB configuration error: MONGODB_URI is missing.")
         return None
 
     try:
@@ -45,17 +46,24 @@ def collection(name="profiles"):
             _client_uri = uri
 
         _client.admin.command("ping")
+
         database_name = get_setting(
-            "MONGODB_DATABASE", "career_agent"
+            "MONGODB_DATABASE",
+            "career_agent",
         )
+
         return _client[database_name][name]
 
-    except PyMongoError:
+    except PyMongoError as exc:
+        # Log the error type without printing credentials or the URI.
+        print(
+            f"MongoDB connection error: {type(exc).__name__}"
+        )
         return None
 
 
 def save_profile(profile: dict, profile_id: str):
-    """Insert or update the profile for this browser ID."""
+    """Insert or update the profile associated with this browser ID."""
     if not profile_id:
         return {
             "saved": False,
@@ -63,6 +71,7 @@ def save_profile(profile: dict, profile_id: str):
         }
 
     col = collection("profiles")
+
     if col is None:
         return {
             "saved": False,
@@ -91,20 +100,23 @@ def save_profile(profile: dict, profile_id: str):
         }
 
     except PyMongoError as exc:
+        print(f"MongoDB profile-save error: {type(exc).__name__}")
+
         return {
             "saved": False,
             "message": (
-                f"Database save failed: {exc.__class__.__name__}"
+                f"Database save failed: {type(exc).__name__}"
             ),
         }
 
 
 def load_profile(profile_id: str):
-    """Load the profile associated with this browser ID."""
+    """Load only the profile matching this browser's profile ID."""
     if not profile_id:
         return None
 
     col = collection("profiles")
+
     if col is None:
         return None
 
@@ -120,13 +132,15 @@ def load_profile(profile_id: str):
 
         return document
 
-    except PyMongoError:
+    except PyMongoError as exc:
+        print(f"MongoDB profile-load error: {type(exc).__name__}")
         return None
 
 
 def save_chat(user_message: str, assistant_message: str):
     """Save a chat exchange when MongoDB is available."""
     col = collection("chat_history")
+
     if col is None:
         return
 
@@ -136,5 +150,6 @@ def save_chat(user_message: str, assistant_message: str):
             "assistant_message": assistant_message,
             "created_at": datetime.now(timezone.utc),
         })
-    except PyMongoError:
-        pass
+
+    except PyMongoError as exc:
+        print(f"MongoDB chat-save error: {type(exc).__name__}")
