@@ -1,15 +1,25 @@
 import os
 import json
+import secrets
 import requests
 import streamlit as st
 from dotenv import load_dotenv
 from pypdf import PdfReader
 from services.recommender import recommend, get_careers
 from services.guidance import answer
-from services.database import save_profile, save_chat
+from services.database import save_profile, load_profile, save_chat
 
 load_dotenv()
 st.set_page_config(page_title="NextStep AI", page_icon="↗️", layout="wide", initial_sidebar_state="expanded")
+
+# Keep a random profile ID in the URL so the same browser link can restore its profile.
+# Treat this link like a private link: anyone who has it can access that profile.
+if "profile_id" not in st.session_state:
+    profile_id = st.query_params.get("pid", "")
+    if not profile_id:
+        profile_id = secrets.token_urlsafe(32)
+        st.query_params["pid"] = profile_id
+    st.session_state.profile_id = profile_id
 
 if "theme_mode" not in st.session_state:
     st.session_state.theme_mode = "Light"
@@ -177,6 +187,17 @@ if "recommendations" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# Load the saved profile once when a new Streamlit session starts.
+if "profile_loaded" not in st.session_state:
+    st.session_state.profile_loaded = True
+    saved_profile = load_profile(st.session_state.profile_id)
+    if saved_profile:
+        st.session_state.profile = saved_profile
+        try:
+            st.session_state.recommendations = recommend(saved_profile) or []
+        except Exception:
+            st.session_state.recommendations = []
+
 # Navigation requests are applied before the sidebar radio is created.
 def go_to_profile():
     st.session_state.nav_selection = "Profile"
@@ -235,13 +256,18 @@ def profile_form():
         st.session_state.profile = profile
         st.session_state.recommendations = recommendations or []
         try:
-            result = save_profile(profile)
+            result = save_profile(profile, st.session_state.profile_id)
             message = result.get("message", "") if isinstance(result, dict) else ""
             notice = "Profile processed successfully for this session."
             if message:
                 notice += " " + str(message)
         except Exception as exc:
-            notice = f"Profile processed for this session, but database saving failed ({type(exc).__name__})."
+            # Log the actual exception in Streamlit Cloud without exposing secrets.
+            print(f"Profile save error: {type(exc).__name__}: {exc}")
+            notice = (
+                "Profile processed for this session, "
+                f"but database saving failed ({type(exc).__name__})."
+            )
         st.session_state.profile_save_notice = notice
         st.session_state.navigate_after_save = "Recommendations"
         st.rerun()
